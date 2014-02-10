@@ -25,11 +25,13 @@ import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.os.Build;
-import android.support.transition.utils.OverlayCompatibilityHelper;
-import android.support.transition.utils.RectEvaluator;
+import android.support.transition.utils.*;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.Map;
 
 /**
@@ -59,6 +61,16 @@ public class ChangeBounds extends Transition {
     private static final String LOG_TAG = "ChangeBounds";
 
     private static RectEvaluator sRectEvaluator = new RectEvaluator();
+
+    public ChangeBounds() {
+        if (sSuppressSupported && sSuppressMethod == null) {
+            try {
+                sSuppressMethod = ViewGroup.class.getMethod("suppressLayout", new Class[]{boolean.class});
+            } catch (NoSuchMethodException e) {
+                sSuppressSupported = false;
+            }
+        }
+    }
 
     @Override
     public String[] getTransitionProperties() {
@@ -169,36 +181,7 @@ public class ChangeBounds extends Transition {
                     }
                     ObjectAnimator anim = ObjectAnimator.ofPropertyValuesHolder(view, pvh);
                     if (view.getParent() instanceof ViewGroup) {
-                        final ViewGroup parent = (ViewGroup) view.getParent();
-                        //TODO Suppress layout
-//                        parent.suppressLayout(true);
-//                        TransitionListener transitionListener = new TransitionListenerAdapter() {
-//                            boolean mCanceled = false;
-//
-//                            @Override
-//                            public void onTransitionCancel(Transition transition) {
-//                                parent.suppressLayout(false);
-//                                mCanceled = true;
-//                            }
-//
-//                            @Override
-//                            public void onTransitionEnd(Transition transition) {
-//                                if (!mCanceled) {
-//                                    parent.suppressLayout(false);
-//                                }
-//                            }
-//
-//                            @Override
-//                            public void onTransitionPause(Transition transition) {
-//                                parent.suppressLayout(false);
-//                            }
-//
-//                            @Override
-//                            public void onTransitionResume(Transition transition) {
-//                                parent.suppressLayout(true);
-//                            }
-//                        };
-//                        addListener(transitionListener);
+                        addSuppressLayoutListener((ViewGroup) view.getParent());
                     }
                     return anim;
                 } else {
@@ -236,35 +219,7 @@ public class ChangeBounds extends Transition {
                     }
                     ObjectAnimator anim = ObjectAnimator.ofPropertyValuesHolder(view, pvh);
                     if (view.getParent() instanceof ViewGroup) {
-                        final ViewGroup parent = (ViewGroup) view.getParent();
-//                        parent.suppressLayout(true);
-//                        TransitionListener transitionListener = new TransitionListenerAdapter() {
-//                            boolean mCanceled = false;
-//
-//                            @Override
-//                            public void onTransitionCancel(Transition transition) {
-//                                parent.suppressLayout(false);
-//                                mCanceled = true;
-//                            }
-//
-//                            @Override
-//                            public void onTransitionEnd(Transition transition) {
-//                                if (!mCanceled) {
-//                                    parent.suppressLayout(false);
-//                                }
-//                            }
-//
-//                            @Override
-//                            public void onTransitionPause(Transition transition) {
-//                                parent.suppressLayout(false);
-//                            }
-//
-//                            @Override
-//                            public void onTransitionResume(Transition transition) {
-//                                parent.suppressLayout(true);
-//                            }
-//                        };
-//                        addListener(transitionListener);
+                        addSuppressLayoutListener((ViewGroup) view.getParent());
                     }
                     anim.addListener(new AnimatorListenerAdapter() {
                         @Override
@@ -319,4 +274,58 @@ public class ChangeBounds extends Transition {
         }
         return null;
     }
+
+    private void addSuppressLayoutListener(final ViewGroup parent) {
+        if (!enableSuppression || !sSuppressSupported) return;
+
+        suppressLayout(parent, true);
+        TransitionListener transitionListener = new TransitionListener() {
+            boolean mCanceled = false;
+
+            @Override
+            public void onTransitionCancel(Transition transition) {
+                suppressLayout(parent, false);
+                mCanceled = true;
+            }
+
+            @Override
+            public void onTransitionStart(Transition transition) {}
+
+            @Override
+            public void onTransitionEnd(Transition transition) {
+                if (!mCanceled) {
+                    suppressLayout(parent, false);
+                }
+            }
+
+            @Override
+            public void onTransitionPause(Transition transition) {
+                suppressLayout(parent, false);
+            }
+
+            @Override
+            public void onTransitionResume(Transition transition) {
+                suppressLayout(parent, true);
+            }
+        };
+        addListener(transitionListener);
+    }
+
+    private void suppressLayout(ViewGroup aViewGroup, boolean aSuppressValue) {
+        try {
+            mSuppressParam[0] = aSuppressValue;
+            sSuppressMethod.invoke(aViewGroup, mSuppressParam);
+            Log.d(LOG_TAG, String.format("%s layout on %s", aSuppressValue ? "suppressing" : "allowing", aViewGroup));
+        } catch (InvocationTargetException e) {
+            e.printStackTrace();
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public         boolean enableSuppression  = true;
+    private static boolean sSuppressSupported = true;
+    private static Method sSuppressMethod;
+    private final Object[] mSuppressParam = new Object[1];
+
 }
